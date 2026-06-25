@@ -125,9 +125,7 @@ git clone https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-~/.
 
 ## 实现与设计
 
-依赖栈：winit 0.30 / wgpu 29 / glyphon 0.11 / cosmic-text 0.18 / vte 0.15。完整设计、VT 序列覆盖、依赖版本迁移说明、SSH 多窗口两条路线（ControlMaster vs russh）见：
-
-- 设计文档：[`terminal-emulator-design.md`](./terminal-emulator-design.md)
+依赖栈：winit 0.30 / wgpu 29 / glyphon 0.11 / cosmic-text 0.18 / vte 0.15。
 
 代码结构：
 
