@@ -369,6 +369,7 @@ impl App {
         self.win_id = win;
         self.selection = None;
         self.selecting = false;
+        self.reset_input(); // 切窗口后输入跟踪/补全作废
         if let Some(w) = self.active() {
             w.activity = false;
             w.alerted = false;
@@ -1083,6 +1084,8 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                     self.selection = None;
                     self.write_active(&bytes);
+                    // 更新输入跟踪缓冲 + 重算补全浮层。
+                    self.update_input_buffer(&event.logical_key, event.text.as_deref());
                     self.request_redraw();
                 }
             }
@@ -1198,6 +1201,12 @@ impl ApplicationHandler<UserEvent> for App {
                 self.apply_layout();
                 let (items, _) = self.build_sidebar();
                 let pref = self.pref_row.map(|_| self.build_pref_view());
+                let compl = self.compl.as_ref().map(|c| crate::render::ComplView {
+                    items: c.items.iter().map(|(d, _)| d.clone()).collect(),
+                    selected: c.sel,
+                    col: c.anchor.0,
+                    row: c.anchor.1,
+                });
                 let selection = self.selection;
                 let (conn_idx, win_id) = (self.conn_idx, self.win_id);
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -1206,7 +1215,7 @@ impl ApplicationHandler<UserEvent> for App {
                         .connection_mut(conn_idx)
                         .and_then(|c| c.window_mut(win_id))
                     {
-                        renderer.render(&win.grid, selection, &items, pref.as_ref());
+                        renderer.render(&win.grid, selection, &items, pref.as_ref(), compl.as_ref());
                     }
                 }
             }

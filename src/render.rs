@@ -42,6 +42,14 @@ pub struct PrefView {
     pub selected: usize,
 }
 
+/// 补全候选浮层视图：候选列表 + 选中项 + 锚点光标单元格 (col,row)。
+pub struct ComplView {
+    pub items: Vec<String>,
+    pub selected: usize,
+    pub col: usize,
+    pub row: usize,
+}
+
 /// 矩形管线的顶点：裁剪空间坐标 + RGB（0–1）。
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -301,6 +309,7 @@ impl Renderer {
         selection: Option<Selection>,
         sidebar: &[SidebarItem],
         pref: Option<&PrefView>,
+        compl: Option<&ComplView>,
     ) {
         let pref_open = pref.is_some();
         let (cols, rows) = (grid.cols, grid.rows);
@@ -447,6 +456,44 @@ impl Renderer {
                 let vb = shape_label(&mut self.font_system, &vstr, self.font_size, self.cell_h, vcol);
                 let vx = px + pw - self.cell_w - vchars * self.cell_w;
                 panel_bufs.push((vb, vx, ry + line_h * 0.3, vcol));
+            }
+        }
+
+        // 补全候选浮层（锚在光标格下方；偏好面板打开时不画）。
+        if !pref_open {
+            if let Some(cv) = compl {
+                if !cv.items.is_empty() {
+                    let n = cv.items.len();
+                    let line_h = (self.cell_h * 1.25).round();
+                    let maxw = cv.items.iter().map(|s| s.chars().count()).max().unwrap_or(8).max(8);
+                    let pw = ((maxw as f32 + 2.0) * self.cell_w).min(width - term_left - self.pad);
+                    let ph = line_h * n as f32 + self.pad;
+                    let ax = term_left + cv.col as f32 * self.cell_w;
+                    let ay = term_top + (cv.row as f32 + 1.0) * self.cell_h;
+                    let px = ax.clamp(term_left, (width - pw - self.pad).max(term_left));
+                    let py = if ay + ph <= height {
+                        ay
+                    } else {
+                        (term_top + cv.row as f32 * self.cell_h - ph).max(term_top)
+                    };
+                    let acc = self.theme.ansi[4];
+                    let b = (1.5 * self.scale).max(1.0);
+                    push_rect(&mut verts, px - b, py - b, px + pw + b, py + ph + b, acc, width, height);
+                    push_rect(&mut verts, px, py, px + pw, py + ph, darken(self.theme.bg, 0.85), width, height);
+                    for (i, it) in cv.items.iter().enumerate() {
+                        let ry = py + self.pad * 0.5 + i as f32 * line_h;
+                        let col = if i == cv.selected {
+                            push_rect(&mut verts, px, ry, px + pw, ry + line_h, self.theme.selection, width, height);
+                            GColor::rgb(self.theme.fg[0], self.theme.fg[1], self.theme.fg[2])
+                        } else {
+                            let d = darken(self.theme.fg, 0.7);
+                            GColor::rgb(d[0], d[1], d[2])
+                        };
+                        let label = truncate(it, maxw);
+                        let buf = shape_label(&mut self.font_system, &label, self.font_size, self.cell_h, col);
+                        panel_bufs.push((buf, px + self.cell_w * 0.5, ry, col));
+                    }
+                }
             }
         }
 

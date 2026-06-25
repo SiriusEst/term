@@ -12,19 +12,19 @@
 
 直接下预编译二进制，无需装 Rust：
 
-1. 下载 **[term-v0.4.0-macos-arm64](https://github.com/SiriusEst/term/releases/download/v0.4.0/term-v0.4.0-macos-arm64)**（或到 [Releases](https://github.com/SiriusEst/term/releases) 页面）。
+1. 下载最新版 **[term-macos-arm64](https://github.com/SiriusEst/term/releases/latest/download/term-macos-arm64)**（或到 [Releases](https://github.com/SiriusEst/term/releases) 页面挑指定版本）。
 2. 赋予执行权限：
    ```bash
-   chmod +x term-v0.4.0-macos-arm64
+   chmod +x term-macos-arm64
    ```
 3. 首次运行被 Gatekeeper 拦截时，去掉隔离属性（或在「系统设置 → 隐私与安全性」里放行）：
    ```bash
-   xattr -d com.apple.quarantine term-v0.4.0-macos-arm64
+   xattr -d com.apple.quarantine term-macos-arm64
    ```
 4. 运行：
    ```bash
-   ./term-v0.4.0-macos-arm64            # 打开本地 shell
-   ./term-v0.4.0-macos-arm64 myhost     # ssh 到 ~/.ssh/config 里的别名 myhost
+   ./term-macos-arm64            # 打开本地 shell
+   ./term-macos-arm64 myhost     # ssh 到 ~/.ssh/config 里的别名 myhost
    ```
 
 ### 其它平台（Intel mac / Linux / Windows）
@@ -76,9 +76,19 @@ term user@host.example.com      # 或直接 user@host
 | 关标签 | `Cmd+W` | `Ctrl+Shift+W` |
 | 跳到第 n 个标签 | `Cmd+1..9` | `Ctrl+Shift+1..9` |
 | 上 / 下一个标签 | `Cmd+[` / `Cmd+]` | `Ctrl+Shift+[` / `]` |
+| **切换侧边栏** | `Cmd+B` | `Ctrl+Shift+B` |
+| **偏好面板** | `Cmd+,` | `Ctrl+Shift+,` |
+| **补全：接受 / 选择 / 关** | `Tab` / `↑↓` / `Esc`（浮层弹出时） | 同左 |
 | 回看历史 | `Shift+PgUp` / `PgDn`，或鼠标滚轮 | 同左 |
 | 选择文本 | 鼠标拖选（应用要鼠标时按 `Shift` 强制本地选择） | 同左 |
 | 打开超链接 | 点击 OSC 8 链接 | 同左 |
+
+> **侧边栏**（Termius 风格）：开第 2 个标签或 `Cmd+B` 后，左侧按 host 分组列出窗口树，
+> 带状态色标（绿空闲/黄运行/红失败）+ 完成角标；点窗口切换、点 host 头在该连接下新开窗口。
+> **偏好面板** `Cmd+,`：改字号 / 配色方案（catppuccin·dracula·nord·gruvbox·solarized·tokyonight 实时切换）/
+> scrollback / 侧边栏，写回 `config.toml`。
+> **补全浮层**：输入时自动弹候选（历史命令 + `$PATH` 可执行 + 当前目录文件）；只跟踪连续敲入，
+> 方向/控制键即让位给 shell 自己的补全，不抢活。
 
 ---
 
@@ -91,11 +101,15 @@ font_size = 16.0       # 逻辑像素字号（未乘 HiDPI 缩放），默认 15
 scrollback = 10000     # 主屏回看行数，默认 5000
 
 [theme]
-fg = "#cdd6f4"
-bg = "#1e1e2e"
-cursor = "#f5e0dc"
-selection = "#45475a"
+scheme = "dracula"     # 内置：catppuccin / dracula / nord / gruvbox / solarized / tokyonight
+fg = "#f8f8f2"         # 可在方案之上单独覆盖前景/背景/光标/选区
+bg = "#282a36"
+cursor = "#f8f8f2"
+selection = "#44475a"
+# palette = ["#000000", "#ff5555", ...]  # 可选：覆盖 16 个 ANSI 基础色（影响 ls/vim 着色）
 ```
+
+> 这些都能在 **偏好面板（`Cmd+,`）** 里直接改并实时预览，改完自动写回本文件。
 
 ---
 

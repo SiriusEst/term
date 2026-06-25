@@ -409,7 +409,6 @@ mod tests {
     //! grid 落点两层，是单元测 grid 之外的回归网。
     use super::*;
     use crate::grid::{Color, Grid, MouseProto, TermEvent};
-    use crate::input;
 
     /// 把整段字节喂给一个真实解析器（vte 0.15 的 `advance` 收切片）。
     fn feed(g: &mut Grid, bytes: &[u8]) {
@@ -738,14 +737,16 @@ mod tests {
         assert_eq!(row_text(&g, 1), "r1");
         assert_eq!(row_text(&g, 2), "");
         assert_eq!(row_text(&g, 3), "");
-        assert_eq!(row_text(&mut g, 5), "r5"); // below region untouched
-        // Now delete 1 line from row 2
+        assert_eq!(row_text(&g, 5), "r5"); // below region untouched
+        // DL：在 row2 删 1 行。区域内 row2 以下上移、底边距 row4 补空；
+        // r3/r4 已在上面的 IL 越过下边距被丢弃，回不来；r5 在区域外（row5）永不移动。
         feed(&mut g, b"\x1b[3;1H\x1b[1M");
-        assert_eq!(row_text(&g, 1), "r1");
-        assert_eq!(row_text(&g, 2), "r2");
-        assert_eq!(row_text(&g, 3), "");
-        assert_eq!(row_text(&g, 4), "r4");
-        assert_eq!(row_text(&g, 5), "r5");
+        assert_eq!(row_text(&g, 0), "r0"); // 区域外，冻结
+        assert_eq!(row_text(&g, 1), "r1"); // 游标上方，不动
+        assert_eq!(row_text(&g, 2), ""); // 原 row3 的空行上移过来
+        assert_eq!(row_text(&g, 3), "r2"); // 原 row4 的 r2 上移过来
+        assert_eq!(row_text(&g, 4), ""); // 底边距补的新空行
+        assert_eq!(row_text(&g, 5), "r5"); // 区域外，冻结
     }
 
     #[test]

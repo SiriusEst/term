@@ -280,4 +280,63 @@ mod tests {
         let mods = ModifiersState::SHIFT;
         assert_eq!(encode(&Key::Named(NamedKey::Tab), None, mods, false), Some(b"\x1b[Z".to_vec()));
     }
+
+    // ---- 以下补全：走完整 encode() 路径的 Ctrl / Alt / 文本优先 / 修饰功能键 ----
+
+    #[test]
+    fn ctrl_letter_via_public_encode() {
+        // 完整 encode 路径命中 `ctrl && !alt` 分支 → ctrl_byte。
+        let mods = ModifiersState::CONTROL;
+        assert_eq!(encode(&Key::Character("c".into()), Some("c"), mods, false), Some(vec![0x03]));
+        assert_eq!(encode(&Key::Character("a".into()), Some("a"), mods, false), Some(vec![0x01]));
+        assert_eq!(encode(&Key::Character("[".into()), Some("["), mods, false), Some(vec![0x1b])); // Ctrl+[ = ESC
+    }
+
+    #[test]
+    fn ctrl_space_is_nul() {
+        let mods = ModifiersState::CONTROL;
+        assert_eq!(encode(&Key::Named(NamedKey::Space), None, mods, false), Some(vec![0x00]));
+    }
+
+    #[test]
+    fn alt_prefixes_esc() {
+        let mods = ModifiersState::ALT;
+        // Alt + 可打印 → ESC + 字符（meta 前缀）。
+        assert_eq!(encode(&Key::Character("a".into()), Some("a"), mods, false), Some(b"\x1ba".to_vec()));
+        // Alt + Enter → ESC CR。
+        assert_eq!(encode(&Key::Named(NamedKey::Enter), None, mods, false), Some(b"\x1b\r".to_vec()));
+        // Alt + Backspace → ESC DEL（删词，xterm 习惯）。
+        assert_eq!(encode(&Key::Named(NamedKey::Backspace), None, mods, false), Some(b"\x1b\x7f".to_vec()));
+    }
+
+    #[test]
+    fn plain_printable_prefers_text_over_key() {
+        let mods = ModifiersState::empty();
+        // winit 给的 text 优先（已含 shift/键盘布局结果）。
+        assert_eq!(encode(&Key::Character("a".into()), Some("A"), mods, false), Some(b"A".to_vec()));
+        // 没 text 时退回 key 自带字符。
+        assert_eq!(encode(&Key::Character("x".into()), None, mods, false), Some(b"x".to_vec()));
+    }
+
+    #[test]
+    fn function_keys_with_modifiers() {
+        // Shift+F1 → ESC [ 1 ; 2 P（F1–F4 有修饰时从 SS3 切到 CSI）。
+        assert_eq!(encode(&Key::Named(NamedKey::F1), None, ModifiersState::SHIFT, false), Some(b"\x1b[1;2P".to_vec()));
+        // Ctrl+F5 → ESC [ 15 ; 5 ~。
+        assert_eq!(encode(&Key::Named(NamedKey::F5), None, ModifiersState::CONTROL, false), Some(b"\x1b[15;5~".to_vec()));
+    }
+
+    #[test]
+    fn cursor_modifier_overrides_app_cursor() {
+        // 有修饰时一律走 CSI 1;m 形态，app_cursor=true 不再改成 SS3。
+        let out = encode(&Key::Named(NamedKey::ArrowUp), None, ModifiersState::ALT, true);
+        assert_eq!(out, Some(b"\x1b[1;3A".to_vec())); // 1 + alt(2) = 3
+    }
+
+    #[test]
+    fn pure_modifier_key_returns_none() {
+        let mods = ModifiersState::empty();
+        assert_eq!(encode(&Key::Named(NamedKey::Control), None, mods, false), None);
+        assert_eq!(encode(&Key::Named(NamedKey::Shift), None, mods, false), None);
+    }
 }
