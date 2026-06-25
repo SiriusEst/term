@@ -117,3 +117,90 @@ fn parse_hex(s: &str) -> Option<[u8; 3]> {
     let b = u8::from_str_radix(&h[4..6], 16).ok()?;
     Some([r, g, b])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_with_and_without_hash() {
+        assert_eq!(parse_hex("#ff00ab"), Some([0xff, 0x00, 0xab]));
+        assert_eq!(parse_hex("12cd56"), Some([0x12, 0xcd, 0x56]));
+    }
+
+    #[test]
+    fn parse_hex_rejects_bad_input() {
+        assert_eq!(parse_hex("#fff"), None);      // 太短
+        assert_eq!(parse_hex("#gg00ff"), None);   // 非法字符
+        assert_eq!(parse_hex("#ff00ff00"), None); // 太长
+    }
+
+    #[test]
+    fn config_theme_defaults_to_catppuccin() {
+        let cfg = Config::default();
+        assert_eq!(cfg.font_size, None);
+        assert_eq!(cfg.scrollback, None);
+        let t = cfg.theme();
+        assert_eq!(t.fg, [0xcd, 0xd6, 0xf4]);
+    }
+
+    #[test]
+    fn config_theme_overrides_apply() {
+        let cfg = Config {
+            font_size: Some(18.0),
+            scrollback: Some(1000),
+            theme: ThemeCfg {
+                scheme: Some("dracula".into()),
+                fg: Some("#ffffff".into()),
+                bg: Some("#000000".into()),
+                cursor: Some("#123456".into()),
+                selection: Some("#abcdef".into()),
+                palette: Some(vec!["#111111".into(), "#222222".into()]),
+            },
+        };
+        let t = cfg.theme();
+        assert_eq!(t.fg, [0xff, 0xff, 0xff]);
+        assert_eq!(t.bg, [0x00, 0x00, 0x00]);
+        assert_eq!(t.cursor, [0x12, 0x34, 0x56]);
+        assert_eq!(t.selection, [0xab, 0xcd, 0xef]);
+        assert_eq!(t.ansi[0], [0x11, 0x11, 0x11]);
+        assert_eq!(t.ansi[1], [0x22, 0x22, 0x22]);
+        // 未覆盖的调色板项保留 dracula 方案值
+        assert_ne!(t.ansi[2], [0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn config_theme_bad_scheme_falls_back_to_default() {
+        let cfg = Config {
+            theme: ThemeCfg {
+                scheme: Some("not-a-scheme".into()),
+                ..ThemeCfg::default()
+            },
+            ..Config::default()
+        };
+        let t = cfg.theme();
+        assert_eq!(t.fg, [0xcd, 0xd6, 0xf4]); // Catppuccin 默认前景
+    }
+
+    #[test]
+    fn config_toml_roundtrip() {
+        let cfg = Config {
+            font_size: Some(16.5),
+            scrollback: Some(8192),
+            theme: ThemeCfg {
+                scheme: Some("nord".into()),
+                fg: Some("#d8dee9".into()),
+                bg: None,
+                cursor: None,
+                selection: None,
+                palette: None,
+            },
+        };
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        let parsed: Config = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.font_size, cfg.font_size);
+        assert_eq!(parsed.scrollback, cfg.scrollback);
+        assert_eq!(parsed.theme.scheme, cfg.theme.scheme);
+        assert_eq!(parsed.theme.fg, cfg.theme.fg);
+    }
+}

@@ -121,6 +121,25 @@ pub struct App {
     sidebar_override: Option<bool>,
     /// 偏好面板（Cmd+,）：Some = 打开，记录选中行。
     pref_row: Option<usize>,
+
+    // ---- 补全浮层 ----
+    /// 自上次提示符/换行以来「连续敲入」的字符（任何导航/控制键都会清空它）。
+    input_buf: String,
+    /// 命令历史（去重，最近在后）。
+    history: Vec<String>,
+    /// $PATH 下可执行名缓存（懒加载）。
+    path_bins: Option<Vec<String>>,
+    /// 当前补全候选浮层。
+    compl: Option<Completion>,
+}
+
+/// 补全候选浮层状态。
+struct Completion {
+    /// (显示文本, 接受时要补发给 PTY 的后缀)。
+    items: Vec<(String, String)>,
+    sel: usize,
+    /// 浮层锚点 = 打开时光标所在单元格 (col,row)。
+    anchor: (usize, usize),
 }
 
 /// 偏好面板的行数（字号 / 配色 / scrollback / 侧边栏）。
@@ -162,6 +181,10 @@ impl App {
             sync_skip_count: 0,
             sidebar_override: None,
             pref_row: None,
+            input_buf: String::new(),
+            history: Vec::new(),
+            path_bins: None,
+            compl: None,
         }
     }
 
@@ -318,7 +341,7 @@ impl App {
                 }
             }
         }
-        if let Some(n) = self.scrollback {
+        if let Some(n) = self.config.scrollback {
             if let Some(w) = self.manager.window_mut(conn, new_win) {
                 w.grid.set_scrollback_max(n);
             }
@@ -455,6 +478,312 @@ impl App {
         self.write_active(&seq);
     }
 
+    // ---- 偏好面板（Cmd+,）----
+
+    /// 构造偏好面板视图。
+    fn build_pref_view(&self) -> crate::render::PrefView {
+        let font = self.config.font_size.unwrap_or(15.0) as i32;
+        let scheme = self
+            .config
+            .theme
+            .scheme
+            .clone()
+            .unwrap_or_else(|| "catppuccin".into());
+        let scrollback = self.config.scrollback.unwrap_or(5000);
+        let sidebar = match self.sidebar_override {
+            None => "自动",
+            Some(true) => "开",
+            Some(false) => "关",
+        };
+        crate::render::PrefView {
+            title: "偏好  ·  ↑↓ 选行  ◀▶ 改值  Esc 保存关闭".into(),
+            rows: vec![
+                ("字号 Font size".into(), font.to_string()),
+                ("配色 Color scheme".into(), scheme),
+                ("回看 Scrollback".into(), scrollback.to_string()),
+                ("侧边栏 Sidebar".into(), sidebar.into()),
+            ],
+            selected: self.pref_row.unwrap_or(0),
+        }
+    }
+
+    /// 偏好面板打开时的按键。
+    fn handle_pref_key(&mut self, key: &Key) {
+        let close = matches!(key, Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Enter))
+            || (self.mods.super_key() && matches!(key, Key::Character(s) if s.as_str() == ","));
+        if close {
+            self.pref_row = None;
+            self.config.save();
+            self.request_redraw();
+            return;
+        }
+        if let Key::Named(n) = key {
+            let r = self.pref_row.unwrap_or(0);
+            match n {
+                NamedKey::ArrowUp => self.pref_row = Some((r + PREF_ROWS - 1) % PREF_ROWS),
+                NamedKey::ArrowDown => self.pref_row = Some((r + 1) % PREF_ROWS),
+                NamedKey::ArrowLeft => self.pref_change(false),
+                NamedKey::ArrowRight => self.pref_change(true),
+                _ => {}
+            }
+            self.request_redraw();
+        }
+    }
+
+    /// 改当前选中行的值（←/→）。
+    fn pref_change(&mut self, inc: bool) {
+        match self.pref_row.unwrap_or(0) {
+            0 => {
+                // 字号 ±1（8..32）。
+                let cur = self.config.font_size.unwrap_or(15.0);
+                let next = (cur + if inc { 1.0 } else { -1.0 }).clamp(8.0, 32.0);
+                self.config.font_size = Some(next);
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                if let Some(r) = self.renderer.as_mut() {
+                    r.set_font_size(next, scale);
+                }
+                self.apply_layout();
+                self.sync_all_sizes();
+            }
+            1 => {
+                // 配色方案循环。
+                let schemes = crate::theme::Theme::SCHEMES;
+                let cur = self
+                    .config
+                    .theme
+                    .scheme
+                    .clone()
+                    .unwrap_or_else(|| schemes[0].to_string());
+                let idx = schemes.iter().position(|s| *s == cur).unwrap_or(0);
+                let n = schemes.len();
+                let next = if inc { (idx + 1) % n } else { (idx + n - 1) % n };
+                self.config.theme.scheme = Some(schemes[next].to_string());
+                let theme = self.config.theme();
+                if let Some(r) = self.renderer.as_mut() {
+                    r.set_theme(theme);
+                }
+            }
+            2 => {
+                // scrollback ±1000（0..1e6）。
+                let cur = self.config.scrollback.unwrap_or(5000);
+                let next = if inc {
+                    (cur + 1000).min(1_000_000)
+                } else {
+                    cur.saturating_sub(1000)
+                };
+                self.config.scrollback = Some(next);
+                for (c, w) in self.tabs.clone() {
+                    if let Some(win) = self.manager.window_mut(c, w) {
+                        win.grid.set_scrollback_max(next.max(1));
+                    }
+                }
+            }
+            3 => {
+                // 侧边栏：自动 → 开 → 关 → 自动。
+                self.sidebar_override = match self.sidebar_override {
+                    None => Some(true),
+                    Some(true) => Some(false),
+                    Some(false) => None,
+                };
+                self.apply_layout();
+                self.sync_all_sizes();
+            }
+            _ => {}
+        }
+    }
+
+    // ---- 补全浮层 ----
+
+    /// 清掉输入跟踪 + 关浮层（切窗口 / 新提示符时）。
+    fn reset_input(&mut self) {
+        self.input_buf.clear();
+        self.compl = None;
+    }
+
+    /// 懒加载 $PATH 下可执行名。
+    fn ensure_path_bins(&mut self) {
+        if self.path_bins.is_some() {
+            return;
+        }
+        let mut names = Vec::new();
+        if let Some(path) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path) {
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    for ent in rd.flatten() {
+                        if let Some(n) = ent.file_name().to_str() {
+                            names.push(n.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        names.sort();
+        names.dedup();
+        self.path_bins = Some(names);
+    }
+
+    /// 活动窗口 OSC 7 上报的 cwd（`file://host/path` → 本地路径）。
+    fn active_cwd(&self) -> Option<std::path::PathBuf> {
+        let w = self
+            .manager
+            .connection(self.conn_idx)?
+            .window(self.win_id)?;
+        let cwd = w.cwd.as_deref()?;
+        let path = if let Some(rest) = cwd.strip_prefix("file://") {
+            let i = rest.find('/')?;
+            &rest[i..]
+        } else if cwd.starts_with('/') {
+            cwd
+        } else {
+            return None;
+        };
+        Some(std::path::PathBuf::from(path))
+    }
+
+    fn active_cursor(&self) -> (usize, usize) {
+        self.manager
+            .connection(self.conn_idx)
+            .and_then(|c| c.window(self.win_id))
+            .map(|w| (w.grid.cx, w.grid.cy))
+            .unwrap_or((0, 0))
+    }
+
+    /// 根据当前输入缓冲收集补全候选：历史整行 + PATH 可执行（首词）+ cwd 文件（最后一段）。
+    fn gather_candidates(&self) -> Vec<(String, String)> {
+        let buf = self.input_buf.as_str();
+        let trimmed = buf.trim_start();
+        let mut items: Vec<(String, String)> = Vec::new();
+        // 1) 历史整行（buf 是前缀）——重复长命令最有用。
+        for line in self.history.iter().rev() {
+            if line.len() > buf.len() && line.starts_with(buf) {
+                items.push((line.clone(), line[buf.len()..].to_string()));
+                if items.len() >= 6 {
+                    break;
+                }
+            }
+        }
+        // 2) 最后一个 token 补全。
+        let token = buf.rsplit(' ').next().unwrap_or("");
+        if !token.is_empty() {
+            let is_first = trimmed == token; // 整行只有一个词 → 补命令名
+            if is_first {
+                if let Some(bins) = &self.path_bins {
+                    for name in bins {
+                        if name.starts_with(token) && name.len() > token.len() {
+                            items.push((name.clone(), name[token.len()..].to_string()));
+                        }
+                    }
+                }
+            }
+            if let Some(cwd) = self.active_cwd() {
+                let (dir, prefix) = match token.rfind('/') {
+                    Some(s) => (cwd.join(&token[..=s]), token[s + 1..].to_string()),
+                    None => (cwd, token.to_string()),
+                };
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    for ent in rd.flatten() {
+                        if let Some(name) = ent.file_name().to_str() {
+                            if name.starts_with(&prefix) && name.len() > prefix.len() {
+                                let mut sfx = name[prefix.len()..].to_string();
+                                if ent.path().is_dir() {
+                                    sfx.push('/');
+                                }
+                                items.push((name.to_string(), sfx));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 按后缀全局去重，截断 8 个。
+        let mut seen = std::collections::HashSet::new();
+        items.retain(|(_, sfx)| seen.insert(sfx.clone()));
+        items.truncate(8);
+        items
+    }
+
+    /// 重算补全候选并更新浮层。
+    fn recompute_completion(&mut self) {
+        if self.input_buf.trim_start().is_empty() {
+            self.compl = None;
+            return;
+        }
+        self.ensure_path_bins();
+        let items = self.gather_candidates();
+        if items.is_empty() {
+            self.compl = None;
+        } else {
+            let anchor = self.active_cursor();
+            self.compl = Some(Completion {
+                items,
+                sel: 0,
+                anchor,
+            });
+        }
+    }
+
+    /// 接受当前选中候选：把后缀补发给 PTY。
+    fn compl_accept(&mut self) {
+        if let Some(c) = self.compl.take() {
+            if let Some((_, sfx)) = c.items.get(c.sel) {
+                let sfx = sfx.clone();
+                self.input_buf.push_str(&sfx);
+                self.write_active(sfx.as_bytes());
+            }
+        }
+        self.request_redraw();
+    }
+
+    fn compl_nav(&mut self, delta: i32) {
+        if let Some(c) = self.compl.as_mut() {
+            let n = c.items.len() as i32;
+            if n > 0 {
+                c.sel = (((c.sel as i32 + delta) % n + n) % n) as usize;
+            }
+        }
+        self.request_redraw();
+    }
+
+    /// 按本次按键更新输入跟踪缓冲（再触发补全重算）。
+    /// 只跟踪「连续敲入的可见字符」：任何导航/控制键都放弃跟踪，避免与 shell 行编辑错位。
+    fn update_input_buffer(&mut self, key: &Key, text: Option<&str>) {
+        let ctrl = self.mods.control_key();
+        let alt = self.mods.alt_key();
+        match key {
+            Key::Named(NamedKey::Enter) => {
+                let line = self.input_buf.trim().to_string();
+                if !line.is_empty() && self.history.last() != Some(&line) {
+                    self.history.push(line);
+                    if self.history.len() > 1000 {
+                        self.history.remove(0);
+                    }
+                }
+                self.input_buf.clear();
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.input_buf.pop();
+            }
+            Key::Named(NamedKey::Space) => self.input_buf.push(' '),
+            Key::Named(_) => self.input_buf.clear(), // 方向/功能/Tab/Esc 等：放弃跟踪
+            Key::Character(_) if ctrl || alt => self.input_buf.clear(),
+            Key::Character(_) => {
+                if let Some(t) = text {
+                    if t.chars().all(|c| !c.is_control()) {
+                        self.input_buf.push_str(t);
+                    } else {
+                        self.input_buf.clear();
+                    }
+                }
+            }
+            _ => {}
+        }
+        self.recompute_completion();
+    }
+
     // ---- 键盘 ----
 
     /// 返回 true = 已作为本地快捷键处理（不再编码给 PTY）。
@@ -522,6 +851,12 @@ impl App {
                         self.request_redraw();
                         return true;
                     }
+                    "," => {
+                        // 打开偏好面板。
+                        self.pref_row = Some(0);
+                        self.request_redraw();
+                        return true;
+                    }
                     "[" => {
                         self.cycle_tab(false);
                         return true;
@@ -562,7 +897,7 @@ impl ApplicationHandler<UserEvent> for App {
                 return;
             }
         };
-        match Renderer::new(window.clone(), self.font_size, self.theme) {
+        match Renderer::new(window.clone(), self.config.font_size, self.config.theme()) {
             Ok(r) => self.renderer = Some(r),
             Err(e) => {
                 eprintln!("[term] 初始化渲染器失败: {e}");
@@ -704,6 +1039,34 @@ impl ApplicationHandler<UserEvent> for App {
                 if event.state != ElementState::Pressed {
                     return;
                 }
+                // 偏好面板打开时，按键全归它（导航/改值/关闭），不发给 PTY。
+                if self.pref_row.is_some() {
+                    self.handle_pref_key(&event.logical_key);
+                    return;
+                }
+                // 补全浮层打开时：Tab 接受、↑↓ 选择、Esc 关闭；其余按键照常落到下面。
+                if self.compl.is_some() {
+                    match &event.logical_key {
+                        Key::Named(NamedKey::Tab) => {
+                            self.compl_accept();
+                            return;
+                        }
+                        Key::Named(NamedKey::ArrowDown) => {
+                            self.compl_nav(1);
+                            return;
+                        }
+                        Key::Named(NamedKey::ArrowUp) => {
+                            self.compl_nav(-1);
+                            return;
+                        }
+                        Key::Named(NamedKey::Escape) => {
+                            self.compl = None;
+                            self.request_redraw();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
                 if self.handle_shortcut(event_loop, &event.logical_key) {
                     return;
                 }
@@ -831,9 +1194,10 @@ impl ApplicationHandler<UserEvent> for App {
             }
 
             WindowEvent::RedrawRequested => {
-                // 先把布局喂给渲染器、快照侧边栏（避免与活动 grid 借用冲突），再借活动窗口渲染。
+                // 先把布局喂给渲染器、快照侧边栏 + 偏好视图（避免与活动 grid 借用冲突），再渲染。
                 self.apply_layout();
                 let (items, _) = self.build_sidebar();
+                let pref = self.pref_row.map(|_| self.build_pref_view());
                 let selection = self.selection;
                 let (conn_idx, win_id) = (self.conn_idx, self.win_id);
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -842,7 +1206,7 @@ impl ApplicationHandler<UserEvent> for App {
                         .connection_mut(conn_idx)
                         .and_then(|c| c.window_mut(win_id))
                     {
-                        renderer.render(&win.grid, selection, &items);
+                        renderer.render(&win.grid, selection, &items, pref.as_ref());
                     }
                 }
             }

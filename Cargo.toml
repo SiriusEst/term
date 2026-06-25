@@ -2,6 +2,8 @@
 name = "term"
 version = "0.4.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SiriusEst/term"
 description = "为 AI 编码 agent (Claude Code / opencode) 定制的终端，over SSH + tmux —— M1–M10：winit 0.30 / wgpu 29 / glyphon 0.11 自渲染；备用屏 + 同步输出 + truecolor + Unicode + 复制粘贴 + 多标签 + 通知 + 监控 + scrollback + 配置（最新栈，版本可调）"
 
 [dependencies]

@@ -35,6 +35,13 @@ pub struct SidebarItem {
     pub active: bool,
 }
 
+/// 偏好面板视图（App 每帧构造）：标题 + 若干「标签: 值」行 + 选中行。
+pub struct PrefView {
+    pub title: String,
+    pub rows: Vec<(String, String)>,
+    pub selected: usize,
+}
+
 /// 矩形管线的顶点：裁剪空间坐标 + RGB（0–1）。
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -286,9 +293,16 @@ impl Renderer {
         Some(r as usize)
     }
 
-    /// 画一帧：左侧边栏 + 背景/选区/光标矩形 + 文字 + 下划线。
+    /// 画一帧：左侧边栏 + 背景/选区/光标矩形 + 文字 + 下划线 +（可选）偏好面板浮层。
     /// （窗口数 / 是否显示侧边栏由 App 先 `set_layout` 设好。）
-    pub fn render(&mut self, grid: &Grid, selection: Option<Selection>, sidebar: &[SidebarItem]) {
+    pub fn render(
+        &mut self,
+        grid: &Grid,
+        selection: Option<Selection>,
+        sidebar: &[SidebarItem],
+        pref: Option<&PrefView>,
+    ) {
+        let pref_open = pref.is_some();
         let (cols, rows) = (grid.cols, grid.rows);
         let width = self.config.width as f32;
         let height = self.config.height as f32;
@@ -399,6 +413,43 @@ impl Renderer {
             }
         }
 
+        // 偏好面板浮层（模态）：暗化全屏 + 居中面板框 + 行。
+        let mut panel_bufs: Vec<(Buffer, f32, f32, GColor)> = Vec::new();
+        if let Some(pv) = pref {
+            // 暗化整屏。
+            push_rect(&mut verts, 0.0, 0.0, width, height, darken(self.theme.bg, 0.45), width, height);
+            let line_h = (self.cell_h * 1.6).round();
+            let pw = (self.cell_w * 46.0).min(width * 0.92);
+            let ph = line_h * (pv.rows.len() as f32 + 2.5);
+            let px = ((width - pw) * 0.5).round();
+            let py = ((height - ph) * 0.5).round();
+            // 边框（强调色外框 + 面板底内框）。
+            let acc = self.theme.ansi[4];
+            let b = (2.0 * self.scale).max(1.5);
+            push_rect(&mut verts, px - b, py - b, px + pw + b, py + ph + b, acc, width, height);
+            push_rect(&mut verts, px, py, px + pw, py + ph, darken(self.theme.bg, 0.9), width, height);
+            // 标题。
+            let tcol = GColor::rgb(acc[0], acc[1], acc[2]);
+            let tb = shape_label(&mut self.font_system, &pv.title, self.font_size, self.cell_h, tcol);
+            panel_bufs.push((tb, px + self.cell_w, py + line_h * 0.4, tcol));
+            // 行：左标签 + 右值；选中行高亮。
+            for (i, (label, value)) in pv.rows.iter().enumerate() {
+                let ry = py + line_h * (i as f32 + 1.6);
+                if i == pv.selected {
+                    push_rect(&mut verts, px + 0.5 * self.cell_w, ry - line_h * 0.1, px + pw - 0.5 * self.cell_w, ry + line_h * 0.9, self.theme.selection, width, height);
+                }
+                let fg = GColor::rgb(self.theme.fg[0], self.theme.fg[1], self.theme.fg[2]);
+                let lb = shape_label(&mut self.font_system, label, self.font_size, self.cell_h, fg);
+                panel_bufs.push((lb, px + self.cell_w, ry + line_h * 0.3, fg));
+                let vcol = GColor::rgb(self.theme.ansi[3][0], self.theme.ansi[3][1], self.theme.ansi[3][2]);
+                let vstr = format!("◀ {value} ▶");
+                let vchars = vstr.chars().count() as f32;
+                let vb = shape_label(&mut self.font_system, &vstr, self.font_size, self.cell_h, vcol);
+                let vx = px + pw - self.cell_w - vchars * self.cell_w;
+                panel_bufs.push((vb, vx, ry + line_h * 0.3, vcol));
+            }
+        }
+
         let rect_count = verts.len() as u32;
         let rect_vbuf = if verts.is_empty() {
             None
@@ -443,40 +494,55 @@ impl Renderer {
 
         let (bw, bh) = (self.config.width as i32, self.config.height as i32);
         let mut text_areas: Vec<TextArea> = Vec::new();
-        // 侧边栏标签。
-        let sw_i = sw as i32;
-        for (buf, lx, ly, color) in &label_bufs {
+        // 偏好面板打开时是模态：只画面板文字，终端/侧边栏文字让暗化层盖住。
+        if !pref_open {
+            // 侧边栏标签。
+            let sw_i = sw as i32;
+            for (buf, lx, ly, color) in &label_bufs {
+                text_areas.push(TextArea {
+                    buffer: buf,
+                    left: *lx,
+                    top: *ly,
+                    scale: 1.0,
+                    bounds: TextBounds { left: 0, top: 0, right: sw_i, bottom: bh },
+                    default_color: *color,
+                    custom_glyphs: &[],
+                });
+            }
+            // 终端各行。
+            for row in 0..rows {
+                if let Some(line) = &self.line_cache[row] {
+                    let top = term_top + row as f32 * self.cell_h;
+                    for rb in &line.runs {
+                        text_areas.push(TextArea {
+                            buffer: &rb.buffer,
+                            left: rb.left,
+                            top,
+                            scale: 1.0,
+                            bounds: TextBounds {
+                                left: term_left as i32,
+                                top: term_top as i32,
+                                right: bw,
+                                bottom: bh,
+                            },
+                            default_color: rb.color,
+                            custom_glyphs: &[],
+                        });
+                    }
+                }
+            }
+        }
+        // 偏好面板文字（始终在最上层）。
+        for (buf, lx, ly, color) in &panel_bufs {
             text_areas.push(TextArea {
                 buffer: buf,
                 left: *lx,
                 top: *ly,
                 scale: 1.0,
-                bounds: TextBounds { left: 0, top: 0, right: sw_i, bottom: bh },
+                bounds: TextBounds { left: 0, top: 0, right: bw, bottom: bh },
                 default_color: *color,
                 custom_glyphs: &[],
             });
-        }
-        // 终端各行。
-        for row in 0..rows {
-            if let Some(line) = &self.line_cache[row] {
-                let top = term_top + row as f32 * self.cell_h;
-                for rb in &line.runs {
-                    text_areas.push(TextArea {
-                        buffer: &rb.buffer,
-                        left: rb.left,
-                        top,
-                        scale: 1.0,
-                        bounds: TextBounds {
-                            left: term_left as i32,
-                            top: term_top as i32,
-                            right: bw,
-                            bottom: bh,
-                        },
-                        default_color: rb.color,
-                        custom_glyphs: &[],
-                    });
-                }
-            }
         }
 
         self.viewport.update(

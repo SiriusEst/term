@@ -224,4 +224,60 @@ mod tests {
         let plain = encode_paste("a\r\nb", false);
         assert_eq!(plain, b"a\rb");
     }
+
+    #[test]
+    fn cursor_keys_with_and_without_app_cursor() {
+        let mods = ModifiersState::empty();
+        assert_eq!(encode(&Key::Named(NamedKey::ArrowUp), None, mods, false), Some(b"\x1b[A".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::ArrowUp), None, mods, true), Some(b"\x1bOA".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::Home), None, mods, false), Some(b"\x1b[H".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::Home), None, mods, true), Some(b"\x1bOH".to_vec()));
+    }
+
+    #[test]
+    fn cursor_keys_with_modifiers() {
+        let mods = ModifiersState::SHIFT | ModifiersState::CONTROL;
+        let out = encode(&Key::Named(NamedKey::ArrowLeft), None, mods, false);
+        assert_eq!(out, Some(b"\x1b[1;6D".to_vec())); // 1 + shift(1) + ctrl(4) = 6
+    }
+
+    #[test]
+    fn tilde_keys_encode_with_modifiers() {
+        let mods = ModifiersState::ALT;
+        let out = encode(&Key::Named(NamedKey::Delete), None, mods, false);
+        assert_eq!(out, Some(b"\x1b[3;3~".to_vec())); // 1 + alt(2) = 3
+    }
+
+    #[test]
+    fn function_keys_f1_to_f12() {
+        let mods = ModifiersState::empty();
+        assert_eq!(encode(&Key::Named(NamedKey::F1), None, mods, false), Some(b"\x1bOP".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::F4), None, mods, false), Some(b"\x1bOS".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::F5), None, mods, false), Some(b"\x1b[15~".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::F12), None, mods, false), Some(b"\x1b[24~".to_vec()));
+    }
+
+    #[test]
+    fn control_letters_encode_to_c0() {
+        assert_eq!(ctrl_byte("a"), Some(0x01));
+        assert_eq!(ctrl_byte("z"), Some(0x1a));
+        assert_eq!(ctrl_byte(" "), Some(0x00));
+        assert_eq!(ctrl_byte("["), Some(0x1b));
+        assert_eq!(ctrl_byte("?"), None);
+    }
+
+    #[test]
+    fn named_editing_keys_encode() {
+        let mods = ModifiersState::empty();
+        assert_eq!(encode(&Key::Named(NamedKey::Enter), None, mods, false), Some(b"\r".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::Backspace), None, mods, false), Some(b"\x7f".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::Escape), None, mods, false), Some(b"\x1b".to_vec()));
+        assert_eq!(encode(&Key::Named(NamedKey::Tab), None, mods, false), Some(b"\t".to_vec()));
+    }
+
+    #[test]
+    fn shift_tab_is_csi_z() {
+        let mods = ModifiersState::SHIFT;
+        assert_eq!(encode(&Key::Named(NamedKey::Tab), None, mods, false), Some(b"\x1b[Z".to_vec()));
+    }
 }
