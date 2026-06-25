@@ -1,10 +1,10 @@
 [package]
-name = "term"
+name = "ianua"
 version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/SiriusEst/term"
-description = "为 AI 编码 agent (Claude Code / opencode) 定制的终端，over SSH + tmux —— winit 0.30 / wgpu 29 / glyphon 0.11 自渲染；备用屏 + 同步输出 + truecolor + Unicode + 复制粘贴 + 侧边栏多标签 + 偏好面板 + 配色方案 + 补全浮层 + 通知 + 监控 + scrollback（最新栈，版本可调）"
+repository = "https://github.com/SiriusEst/ianua"
+description = "Ianua（雅努斯之门）—— 为 AI 编码 agent (Claude Code / opencode) 定制、与 agent 双向交互的 GPU 终端，over SSH + tmux —— winit 0.30 / wgpu 29 / glyphon 0.11 自渲染；备用屏 + 同步输出 + truecolor + Unicode + 复制粘贴 + 侧边栏多标签 + 偏好面板 + 配色方案 + 补全浮层 + 通知 + 监控 + scrollback（最新栈，版本可调）"
 
 [dependencies]
 # ---- PTY（沿用 M0）----
@@ -37,4 +37,4 @@ notify-rust = "4"      # 跨平台桌面通知（mac NSUserNotification / Linux 
 # ---- M10：打磨 ----
 unicode-width = "0.2"  # CJK / emoji 显示宽度（宽字符占两列、组合字符占零列）
 serde = { version = "1", features = ["derive"] }  # 配置文件反序列化
-toml = "1"             # ~/.config/term/config.toml（字号 / 主题色 / scrollback）
+toml = "1"             # ~/.config/ianua/config.toml（字号 / 主题色 / scrollback）

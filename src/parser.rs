@@ -198,7 +198,7 @@ impl Perform for Performer<'_> {
             b"9" => {
                 // iTerm2 风格：OSC 9 ; message
                 if let Some(msg) = params.get(1) {
-                    self.grid.push_event(TermEvent::Notify("term".into(), s(msg)));
+                    self.grid.push_event(TermEvent::Notify("ianua".into(), s(msg)));
                 }
             }
             b"52" => self.osc52(params),

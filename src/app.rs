@@ -327,7 +327,7 @@ impl App {
             Some(c) => match c.open_window(dims.0 as u16, dims.1 as u16) {
                 Ok(id) => id,
                 Err(e) => {
-                    eprintln!("[term] 新建标签失败: {e}");
+                    eprintln!("[ianua] 新建标签失败: {e}");
                     return;
                 }
             },
@@ -407,7 +407,7 @@ impl App {
             .connection(self.conn_idx)
             .and_then(|c| c.window(self.win_id))
             .map(|w| w.title.clone())
-            .unwrap_or_else(|| "term".into())
+            .unwrap_or_else(|| "ianua".into())
     }
 
     // ---- 通知（M8）----
@@ -424,7 +424,7 @@ impl App {
         if !self.focused || !is_active {
             thread::spawn(move || {
                 let _ = notify_rust::Notification::new()
-                    .summary(if title.is_empty() { "term" } else { &title })
+                    .summary(if title.is_empty() { "ianua" } else { &title })
                     .body(&body)
                     .show();
             });
@@ -441,7 +441,7 @@ impl App {
                 .connection(conn)
                 .and_then(|c| c.window(win))
                 .map(|w| w.title.clone())
-                .unwrap_or_else(|| "term".into());
+                .unwrap_or_else(|| "ianua".into());
             self.notify(conn, win, title, "完成".into());
         }
     }
@@ -893,7 +893,7 @@ impl ApplicationHandler<UserEvent> for App {
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
-                eprintln!("[term] 创建窗口失败: {e}");
+                eprintln!("[ianua] 创建窗口失败: {e}");
                 event_loop.exit();
                 return;
             }
@@ -901,7 +901,7 @@ impl ApplicationHandler<UserEvent> for App {
         match Renderer::new(window.clone(), self.config.font_size, self.config.theme()) {
             Ok(r) => self.renderer = Some(r),
             Err(e) => {
-                eprintln!("[term] 初始化渲染器失败: {e}");
+                eprintln!("[ianua] 初始化渲染器失败: {e}");
                 event_loop.exit();
                 return;
             }
@@ -986,7 +986,7 @@ impl ApplicationHandler<UserEvent> for App {
                     match self.tabs.last() {
                         Some(&(nc, nw)) => self.switch_to(nc, nw),
                         None => {
-                            eprintln!("[term] 最后一个会话已退出。");
+                            eprintln!("[ianua] 最后一个会话已退出。");
                             event_loop.exit();
                         }
                     }

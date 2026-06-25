@@ -1,4 +1,4 @@
-//! 配置（M10 + 偏好面板）：`~/.config/term/config.toml`。
+//! 配置（M10 + 偏好面板）：`~/.config/ianua/config.toml`。
 //!
 //! 可调：字号、scrollback 行数、配色方案、主题色（前景/背景/光标/选区）、完整 16 色 ANSI 调色板。
 //! 文件缺失或字段缺省都回退默认，绝不因配置出错而起不来。偏好面板（Cmd+,）改完会写回此文件。
@@ -47,7 +47,7 @@ impl Config {
     pub fn load() -> Self {
         match config_path().and_then(|p| std::fs::read_to_string(p).ok()) {
             Some(text) => toml::from_str(&text).unwrap_or_else(|e| {
-                eprintln!("[term] 配置解析失败，用默认值：{e}");
+                eprintln!("[ianua] 配置解析失败，用默认值：{e}");
                 Config::default()
             }),
             None => Config::default(),
@@ -63,10 +63,10 @@ impl Config {
         match toml::to_string_pretty(self) {
             Ok(text) => {
                 if let Err(e) = std::fs::write(&path, text) {
-                    eprintln!("[term] 写配置失败：{e}");
+                    eprintln!("[ianua] 写配置失败：{e}");
                 }
             }
-            Err(e) => eprintln!("[term] 序列化配置失败：{e}"),
+            Err(e) => eprintln!("[ianua] 序列化配置失败：{e}"),
         }
     }
 
@@ -103,7 +103,7 @@ impl Config {
 
 fn config_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config/term/config.toml"))
+    Some(PathBuf::from(home).join(".config/ianua/config.toml"))
 }
 
 /// `#rrggbb` 或 `rrggbb` → [u8;3]。

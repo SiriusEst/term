@@ -1054,6 +1054,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "ianua"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "base64",
+ "bytemuck",
+ "glyphon",
+ "notify-rust",
+ "pollster",
+ "portable-pty",
+ "serde",
+ "toml",
+ "unicode-width",
+ "vte",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "image"
 version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2477,26 +2497,6 @@ dependencies = [
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "term"
-version = "0.5.0"
-dependencies = [
- "anyhow",
- "arboard",
- "base64",
- "bytemuck",
- "glyphon",
- "notify-rust",
- "pollster",
- "portable-pty",
- "serde",
- "toml",
- "unicode-width",
- "vte",
- "wgpu",
- "winit",
 ]
 
 [[package]]

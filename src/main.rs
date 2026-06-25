@@ -1,4 +1,4 @@
-//! Term —— M1+M2：自渲染窗口 + 最小可交互终端。
+//! Ianua（雅努斯之门）—— 为 AI 编码 agent 定制、与 agent 双向交互的 GPU 终端。
 //!
 //! 相对 M0（crossterm 透传）的变化：本程序自己开窗（winit）、用 GPU 渲染（wgpu+glyphon）、
 //! 把 PTY 字节经 `vte` 解析成字符网格再绘制，并把键盘编码成终端字节写回 PTY。
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
         (win_id, w.pty.reader()?, w.title.clone())
     };
 
-    eprintln!("[term] 启动窗口 `{title}`。Cmd+T 新标签 / Cmd+W 关标签 / Cmd+C·V 复制粘贴；关窗或 exit 退出。");
+    eprintln!("[ianua] 启动窗口 `{title}`。Cmd+T 新标签 / Cmd+W 关标签 / Cmd+C·V 复制粘贴；关窗或 exit 退出。");
 
     // 3) 事件循环（带自定义用户事件）+ 代理。
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;

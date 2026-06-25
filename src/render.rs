@@ -606,7 +606,7 @@ impl Renderer {
             text_areas,
             &mut self.swash_cache,
         ) {
-            eprintln!("[term] glyphon prepare 失败: {e:?}");
+            eprintln!("[ianua] glyphon prepare 失败: {e:?}");
             return;
         }
 
@@ -631,7 +631,7 @@ impl Renderer {
                 return;
             }
             wgpu::CurrentSurfaceTexture::Validation => {
-                eprintln!("[term] 交换链校验错误，跳过本帧。");
+                eprintln!("[ianua] 交换链校验错误，跳过本帧。");
                 return;
             }
         };
@@ -672,7 +672,7 @@ impl Renderer {
             }
 
             if let Err(e) = self.text_renderer.render(&self.atlas, &self.viewport, &mut pass) {
-                eprintln!("[term] glyphon render 失败: {e:?}");
+                eprintln!("[ianua] glyphon render 失败: {e:?}");
             }
         }
 
