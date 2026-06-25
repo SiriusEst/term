@@ -1,0 +1,38 @@
+[package]
+name = "term"
+version = "0.4.0"
+edition = "2021"
+description = "为 AI 编码 agent (Claude Code / opencode) 定制的终端，over SSH + tmux —— M1–M10：winit 0.30 / wgpu 29 / glyphon 0.11 自渲染；备用屏 + 同步输出 + truecolor + Unicode + 复制粘贴 + 多标签 + 通知 + 监控 + scrollback + 配置（最新栈，版本可调）"
+
+[dependencies]
+# ---- PTY（沿用 M0）----
+portable-pty = "0.9"   # 跨平台 PTY（WezTerm 出品）
+anyhow = "1"           # 错误处理
+
+# ---- M1：开窗 + GPU 文本渲染（最新栈，版本可调）----
+# 版本耦合（已对照 crates.io 依赖表核对）：glyphon 0.11 → wgpu 29 + cosmic-text 0.18。
+# 用 caret（^）需求而非锁死精确版本，所以这些库的小版本可自由上调（"adjustable version"）；
+# 只要 glyphon 大版本不变，cargo 会自动挑到与之耦合的 wgpu/cosmic-text。
+# winit 走最新「稳定」版 0.30（0.31 仍是 beta）；它只与 raw-window-handle 0.6 耦合，独立于 wgpu。
+winit = "0.30"         # 跨平台开窗 + 键鼠/resize/focus 事件（0.30 = ApplicationHandler 架构）
+wgpu = "29"            # GPU：mac→Metal，Linux→Vulkan/GL（当前最新大版本）
+glyphon = "0.11"       # cosmic-text 在 wgpu 上的渲染胶水（glyph atlas + pipeline + Viewport/Cache），
+                       # 直接复用 = 提前拿到设计文档 M10 的「GPU glyph atlas」。
+                       # 它再导出 cosmic-text 0.18 的 FontSystem/Buffer/Attrs/Color 等类型。
+pollster = "0.4"       # 在 resumed() 里 block_on 跑 wgpu 的异步初始化
+bytemuck = { version = "1", features = ["derive"] }  # 矩形顶点 → GPU 字节
+
+# ---- M2：解析层 ----
+vte = "0.15"           # ANSI/VT 解析（Alacritty 维护）；我们实现 Perform 把动作落到网格
+
+# ---- M6：复制粘贴 ----
+arboard = "3"          # 系统剪贴板（mac NSPasteboard / Linux X11+Wayland）；复制选区、粘贴回 PTY
+base64 = "0.22"        # OSC 52 剪贴板序列的 base64 编解码（应用侧 → 本地剪贴板）
+
+# ---- M8：完成通知 ----
+notify-rust = "4"      # 跨平台桌面通知（mac NSUserNotification / Linux D-Bus）
+
+# ---- M10：打磨 ----
+unicode-width = "0.2"  # CJK / emoji 显示宽度（宽字符占两列、组合字符占零列）
+serde = { version = "1", features = ["derive"] }  # 配置文件反序列化
+toml = "1"             # ~/.config/term/config.toml（字号 / 主题色 / scrollback）
